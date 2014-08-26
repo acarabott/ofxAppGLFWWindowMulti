@@ -8,4 +8,5 @@ ofxAppGLFWWindowMulti
 
 Notes:
 - For OS X when you add ofxAppGLFWWindowMulti.cpp to your project you will need to set the file type to Objective-C++ you can do this in the right column/pane of Xcode. 
+- For OS X you will need to include the Carbon.framework
 - For Linux / Windows users having issues with drawing see this thread - http://forum.openframeworks.cc/t/multiple-screens-2014/
