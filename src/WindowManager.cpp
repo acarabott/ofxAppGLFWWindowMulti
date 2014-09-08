@@ -149,7 +149,7 @@ void WindowManager::toggleFullscreen(int windowNo){
 }
 
 //--------------------------------------------------------------
-int WindowManager::getWindowMode(int windowMode){
+ofWindowMode WindowManager::getWindowMode(int windowMode){
     if (windowPtr == NULL) {
         ofLogError("WindowManager::getWindowMode") << UNSET_ERR;
         return OF_WINDOW;

@@ -699,7 +699,7 @@ int ofxAppGLFWWindowMulti::getHeight(){
 }
 
 //------------------------------------------------------------
-int ofxAppGLFWWindowMulti::getWindowMode(int windowNo){
+ofWindowMode ofxAppGLFWWindowMulti::getWindowMode(int windowNo){
     if(ofInRange(windowNo, 0, windows.size())) {
         return ( windows[windowNo]->bFullscreen ? OF_FULLSCREEN : OF_WINDOW );
     }
@@ -711,7 +711,7 @@ int ofxAppGLFWWindowMulti::getWindowMode(int windowNo){
 }
 
 //------------------------------------------------------------
-int ofxAppGLFWWindowMulti::getWindowMode(){
+ofWindowMode ofxAppGLFWWindowMulti::getWindowMode(){
     return getWindowMode(currentWindow);
 }
 

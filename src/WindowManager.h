@@ -36,7 +36,7 @@ class WindowManager{
         void setFullscreen(int windowNo, bool fullscreen);
         void toggleFullscreen(int windowNo);
 
-        int getWindowMode(int windowNo);
+        ofWindowMode getWindowMode(int windowNo);
 
         void closeWindow(int which);
         void closeFocusedWindow();
