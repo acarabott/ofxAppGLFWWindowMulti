@@ -70,11 +70,8 @@ ofxAppGLFWWindowMulti::ofxAppGLFWWindowMulti():ofAppBaseWindow(){
 	glVersionMinor=glVersionMajor=-1;
 	nFramesSinceWindowResized = 0;
 
-    addWindow("main window", 0, 0, 1024, 768);
-
-    currentWindow = 0;
-
-    focusedWindow = 0;
+    mainWindow = addWindow("main window", 0, 0, 1024, 768);
+    currentWindow = focusedWindow = mainWindow;
 
     //default to 4 times antialiasing.
     setNumSamples(4);
@@ -213,6 +210,10 @@ int ofxAppGLFWWindowMulti::getNumActiveWindows() {
         }
     }
     return totalWins;
+}
+//------------------------------------------------------------
+int ofxAppGLFWWindowMulti::getMainWindowNo(){
+    return mainWindow;
 }
 
 //------------------------------------------------------------

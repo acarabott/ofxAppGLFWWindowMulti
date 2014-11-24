@@ -34,6 +34,15 @@ ofxAppGLFWWindowMulti * WindowManager::getWindowPtr(){
 }
 
 //--------------------------------------------------------------
+int WindowManager::getMainWindowNo(){
+    if( windowPtr == NULL ){
+        ofLogError("WindowManager::getActiveWindowNo") << UNSET_ERR;
+        return -1;
+    }
+    return windowPtr->getMainWindowNo();
+}
+
+//--------------------------------------------------------------
 int WindowManager::getActiveWindowNo(){
     if( windowPtr == NULL ){
         ofLogError("WindowManager::getActiveWindowNo") << UNSET_ERR;
@@ -50,13 +59,14 @@ int WindowManager::getFocusedWindowNo(){
     }
     return windowPtr->getFocusedWindowNo();
 }
+
 //--------------------------------------------------------------
-void WindowManager::createWindow(){
+int WindowManager::createWindow(){
     if( windowPtr == NULL ){
         ofLogError("WindowManager::createWindow") << UNSET_ERR;
-        return;
+        return -1;
     }
-    windowPtr->addWindow();
+    return windowPtr->addWindow();
 }
 
 //--------------------------------------------------------------

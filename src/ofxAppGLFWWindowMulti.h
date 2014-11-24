@@ -83,6 +83,7 @@ public:
 
 
     //begin multi window stuff
+    int getMainWindowNo();
     int getCurrentWindowNo();
     int getFocusedWindowNo();
     bool isWindowInFocus(int windowNo);
@@ -218,6 +219,7 @@ private:
 	static ofxAppGLFWWindowMulti	* instance;
 	static ofBaseApp *	ofAppPtr;
 
+    int mainWindow;
     int currentWindow;
     int focusedWindow;
     vector < shared_ptr <AppGLFWSingleWindow> > windows;

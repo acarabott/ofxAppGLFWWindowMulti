@@ -17,10 +17,11 @@ class WindowManager{
         void setup(ofxAppGLFWWindowMulti * ptr);
         ofxAppGLFWWindowMulti * getWindowPtr();
 
+        int getMainWindowNo();
         int getActiveWindowNo();
         int getFocusedWindowNo();
 
-        void createWindow();
+        int createWindow();
 
         void pushWindow(int windowNo);
         void popWindow();
