@@ -13,6 +13,8 @@
 #include "ofGLProgrammableRenderer.h"
 #include "ofAppRunner.h"
 
+#include "Poco/URI.h"
+
 #ifdef TARGET_LINUX
 	#include "ofIcon.h"
 	#include "ofImage.h"
@@ -24,7 +26,6 @@
 	#endif
 	#include "GLFW/glfw3native.h"
 	#include <X11/Xatom.h>
-	#include "Poco/URI.h"
 #elif defined(TARGET_OSX)
 	#include <Cocoa/Cocoa.h>
 	#include <Carbon/Carbon.h>
@@ -68,12 +69,11 @@ ofxAppGLFWWindowMulti::ofxAppGLFWWindowMulti():ofAppBaseWindow(){
 
 	glVersionMinor=glVersionMajor=-1;
 	nFramesSinceWindowResized = 0;
-    
-    addWindow("main window", 0, 0, 1024, 768);
 
-    currentWindow = 0;
-    
-    //default to 4 times antialiasing. 
+    mainWindow = addWindow("main window", 0, 0, 1024, 768);
+    currentWindow = focusedWindow = mainWindow;
+
+    //default to 4 times antialiasing.
     setNumSamples(4);
 	iconSet = false;
     isSetup = false;
@@ -87,7 +87,7 @@ void ofxAppGLFWWindowMulti::setNumSamples(int _samples){
 
 //------------------------------------------------------------
 void ofxAppGLFWWindowMulti::setMultiDisplayFullscreen(bool bMultiFullscreen){
-    bMultiWindowFullscreen = bMultiFullscreen; 
+    bMultiWindowFullscreen = bMultiFullscreen;
 }
 
 //------------------------------------------------------------
@@ -126,67 +126,83 @@ void ofxAppGLFWWindowMulti::setOpenGLVersion(int major, int minor){
 
 //------------------------------------------------------------
 int ofxAppGLFWWindowMulti::addWindow(string windowName, float x, float y, float w, float h, bool bFullscreen){
-    
+
         shared_ptr <AppGLFWSingleWindow> winPtr( new AppGLFWSingleWindow() );
         winPtr->windowNo = windows.size();
         winPtr->windowName = windowName;
-    
+
         if( windows.size() >= 1 ){
-        
+
             if( isSetup ){
                 winPtr->windowPtr = glfwCreateWindow(w, h, windowName.c_str(), NULL, windows[0]->windowPtr);
-                
-                
-                
+
+
+
                 if( pushWindow(winPtr->windowNo) ){
-                    
+
                     setWindowTitle(windowName);
                     setWindowShape(w, h);
                     setWindowPosition(x, y);
                     setFullscreen(bFullscreen);
-                    
+
                     popWindow();
                 }
-                
+
             }else{
                 winPtr->windowName = windowName;
                 winPtr->windowBounds.set(x, y, w, h);
                 winPtr->bFullscreen = bFullscreen;
             }
-            
+
         }else{
             winPtr->bMainWindow = true;
         }
-    
+
         windows.push_back( winPtr );
-    
+
         if( isSetup ){
             initializeWindow();
         }
-    
+        setFocusedWindow(winPtr->windowPtr);
+
         return winPtr->windowNo;
 }
 
 //------------------------------------------------------------
 bool ofxAppGLFWWindowMulti::closeWindow(int windowNo){
-    if(windowNo >= 0 && windowNo < windows.size()){    
+    if(ofInRange(windowNo, 0, windows.size())){
         if( windows[windowNo]->windowPtr != NULL ){
             glfwDestroyWindow(windows[windowNo]->windowPtr);
             windows[windowNo]->windowPtr = NULL;
-			return true;
-        }        
+
+            if (windowNo == focusedWindow) {
+                focusedWindow = 0;
+                // TODO This is ok as long as closing window 0 ends the app,
+                // if it's possible to close window 0, and still have other
+                // windows open, this is problematic
+            }
+            if (windowNo == 0) {
+                OF_EXIT_APP(0);
+            }
+
+            return true;
+        }
+    } else {
+        ofLogError("ofxAppGLFWWindowMulti::closeWindow")
+            << "window doesn't exist with windowNo: " << windowNo;
     }
+
 	return false;
 }
 
 //------------------------------------------------------------
 int ofxAppGLFWWindowMulti::getNumWindows(){
-    return windows.size(); 
+    return windows.size();
 }
 
 //------------------------------------------------------------
 int ofxAppGLFWWindowMulti::getNumActiveWindows() {
-    
+
     int totalWins = 0;
     for(int i = 0; i < windows.size(); i++) {
         if( windows[i]->windowPtr != NULL ) {
@@ -195,23 +211,29 @@ int ofxAppGLFWWindowMulti::getNumActiveWindows() {
     }
     return totalWins;
 }
-
 //------------------------------------------------------------
-int ofxAppGLFWWindowMulti::getCurrentWindowNo(){
-    return currentWindow; 
+int ofxAppGLFWWindowMulti::getMainWindowNo(){
+    return mainWindow;
 }
 
 //------------------------------------------------------------
-bool ofxAppGLFWWindowMulti::isWindowInFocus(int winNo){
-    if( winNo >= 0 && winNo < windows.size() ){
-        return windows[winNo]->bInFocus;
-    }
-    return false; 
+int ofxAppGLFWWindowMulti::getCurrentWindowNo(){
+    return currentWindow;
+}
+
+//------------------------------------------------------------
+int ofxAppGLFWWindowMulti::getFocusedWindowNo(){
+    return focusedWindow;
+}
+
+//------------------------------------------------------------
+bool ofxAppGLFWWindowMulti::isWindowInFocus(int windowNo){
+    return windowNo == getFocusedWindowNo();
 }
 
 //------------------------------------------------------------
 vector <shared_ptr <AppGLFWSingleWindow> > ofxAppGLFWWindowMulti::getWindows(){
-    return windows; 
+    return windows;
 }
 
 //------------------------------------------------------------
@@ -229,7 +251,7 @@ bool ofxAppGLFWWindowMulti::pushWindow(int newWindow){
 //------------------------------------------------------------
 void ofxAppGLFWWindowMulti::popWindow(){
     if( windowStack.size() ){
-        
+
         int newWindow = windowStack.back();
         if( newWindow >= 0 && newWindow < windows.size() ){
             if( windows[newWindow]->windowPtr != NULL ){
@@ -254,11 +276,11 @@ void ofxAppGLFWWindowMulti::setupOpenGL(int w, int h, int screenMode){
         ofLogError("ofxAppGLFWWindowMulti") << "can't do game mode";
         return;
 	}
-    
+
     windows[0]->bFullscreen = (screenMode == OF_FULLSCREEN);
-    
+
 //	ofLogNotice("ofxAppGLFWWindowMulti") << "WINDOW MODE IS " << screenMode;
-    
+
 	glfwWindowHint(GLFW_RED_BITS, rBits);
 	glfwWindowHint(GLFW_GREEN_BITS, gBits);
 	glfwWindowHint(GLFW_BLUE_BITS, bBits);
@@ -283,19 +305,19 @@ void ofxAppGLFWWindowMulti::setupOpenGL(int w, int h, int screenMode){
 		glfwWindowHint(GLFW_CLIENT_API,GLFW_OPENGL_ES_API);
 		#endif
 	}
-    
+
 	setVerticalSync(false);
-    
+
     for(int i = 0; i < windows.size(); i++){
         if( windows[i]->windowPtr == NULL ){
             if( i == 0 ){
                 windows[i]->windowPtr = glfwCreateWindow(w, h, "", NULL, NULL);
-                
+
                 if(!windows[0]->windowPtr){
                     ofLogError("ofxAppGLFWWindowMulti") << "couldn't create GLFW window";
                     return;
                 }
-                
+
                 windows[i]->windowBounds.setWidth(w);
                 windows[i]->windowBounds.setHeight(h);
 
@@ -304,17 +326,17 @@ void ofxAppGLFWWindowMulti::setupOpenGL(int w, int h, int screenMode){
             }
         }
     }
-    
-    
+
+
     for(int i = 0; i < windows.size(); i++){
 
         glfwMakeContextCurrent(windows[i]->windowPtr);
-        
-        if( pushWindow(windows[i]->windowNo) ){        
+
+        if( pushWindow(windows[i]->windowNo) ){
             if( windows[i]->bFullscreen ){
                 //so that setFullscreen doesn't think its been set already
                 windows[i]->bFullscreen = false;
-                
+
                 //need to move to the right window first
                 setWindowPosition(windows[i]->windowBounds.x, windows[i]->windowBounds.y);
                 setFullscreen(true);
@@ -326,14 +348,14 @@ void ofxAppGLFWWindowMulti::setupOpenGL(int w, int h, int screenMode){
 
             popWindow();
         }
-        
+
         //update our window info
-        getWindowSize();
+        updateWindowSize(i);
         getWindowPosition();
     }
-    
+
     glfwMakeContextCurrent(windows[0]->windowPtr);
-    
+
     isSetup = true;
     ofGLReadyCallback();
 }
@@ -362,16 +384,16 @@ void ofxAppGLFWWindowMulti::initializeWindow(){
     for(int i = 0; i < windows.size(); i++){
         if( windows[i]->bInitialized ||windows[i]->windowPtr == NULL)continue;
         windows[i]->bInitialized = true;
-        
+
         if( i == 0 ){
             glfwSetWindowCloseCallback(windows[i]->windowPtr, exit_cb);
         }else{
             glfwSetWindowCloseCallback(windows[i]->windowPtr, close_cb);
         }
-        
+
         glfwSetMouseButtonCallback(windows[i]->windowPtr, mouse_cb);
         glfwSetCursorPosCallback(windows[i]->windowPtr, motion_cb);
-        
+
         glfwSetKeyCallback(windows[i]->windowPtr, keyboard_cb);
         glfwSetWindowSizeCallback(windows[i]->windowPtr, resize_cb);
         glfwSetScrollCallback(windows[i]->windowPtr, scroll_cb);
@@ -418,9 +440,9 @@ void ofxAppGLFWWindowMulti::runAppViaInfiniteLoop(ofBaseApp * appPtr){
         for(int i = 0; i < windows.size(); i++){
             //skip closed windows
             if( windows[i]->windowPtr == NULL ) continue;
-            
+
             glfwMakeContextCurrent(windows[i]->windowPtr);
-            
+
             currentWindow = i;
             if( currentWindow == 0 ){
                 ofNotifyUpdate();
@@ -456,14 +478,14 @@ void ofxAppGLFWWindowMulti::display(GLFWwindow* window){
 	}
 
 	if( bEnableSetupScreen )ofSetupScreen();
-    
+
     //we do this because the framecounter is otherwise incremented twice;
     if(currentWindow == 0){
         ofNotifyDraw();
     }else{
         ofAppPtr->draw();
     }
-    
+
 
 	#ifdef TARGET_WIN32
 	if (bClearAuto == false){
@@ -505,135 +527,230 @@ void ofxAppGLFWWindowMulti::display(GLFWwindow* window){
 }
 
 //------------------------------------------------------------
+void ofxAppGLFWWindowMulti::setWindowTitle(int windowNo, string title){
+    if (ofInRange(windowNo, 0, windows.size())) {
+        windows[windowNo]->windowName = title;
+        glfwSetWindowTitle(windows[windowNo]->windowPtr,title.c_str());
+    } else {
+        ofLogError("ofxAppGLFWWindowMulti::setWindowTitle")
+            << "window doesn't exist with windowNo: " << windowNo;
+    }
+}
+
+//------------------------------------------------------------
 void ofxAppGLFWWindowMulti::setWindowTitle(string title){
-    windows[currentWindow]->windowName = title;
-	glfwSetWindowTitle(windows[currentWindow]->windowPtr,title.c_str());
+    setWindowTitle(currentWindow, title);
+}
+
+//------------------------------------------------------------
+ofPoint ofxAppGLFWWindowMulti::updateWindowSize(int windowNo) {
+    if(ofInRange(windowNo, 0, windows.size())) {
+        int windowW, windowH;
+        glfwGetWindowSize(windows[windowNo]->windowPtr,&windowW,&windowH);
+
+        if( windows[windowNo]->bFullscreen == false ){
+            windows[windowNo]->windowBounds.width  = windowW;
+            windows[windowNo]->windowBounds.height = windowH;
+        }else{
+            windows[windowNo]->fullScreenBounds.width  = windowW;
+            windows[windowNo]->fullScreenBounds.height = windowH;
+        }
+
+        return ofPoint(windowW, windowH);
+    }
+
+    ofLogError("ofxAppGLFWWindowMulti::updateWindowSize")
+        << "window doesn't exist with windowNo: " << windowNo;
+
+    return ofPoint(0,0);
 }
 
 //------------------------------------------------------------
 ofPoint ofxAppGLFWWindowMulti::getWindowSize(){
-    int windowW, windowH; 
-    glfwGetWindowSize(windows[currentWindow]->windowPtr,&windowW,&windowH);
-    
-    if( windows[currentWindow]->bFullscreen == false ){
-        windows[currentWindow]->windowBounds.width  = windowW;
-        windows[currentWindow]->windowBounds.height = windowH;
-    }else{
-        windows[currentWindow]->fullScreenBounds.width  = windowW;
-        windows[currentWindow]->fullScreenBounds.height = windowH;
+    return updateWindowSize(currentWindow);
+}
+
+//------------------------------------------------------------
+ofPoint ofxAppGLFWWindowMulti::getWindowSize(int windowNo){
+    return updateWindowSize(windowNo);
+}
+
+//------------------------------------------------------------
+ofPoint ofxAppGLFWWindowMulti::getWindowPosition(int windowNo){
+    if(ofInRange(windowNo, 0, windows.size())) {
+        int x, y;
+        glfwGetWindowPos(windows[windowNo]->windowPtr, &x, &y);
+
+        if( windows[windowNo]->bFullscreen == false ){
+            windows[windowNo]->windowBounds.x = x;
+            windows[windowNo]->windowBounds.y = y;
+        }else{
+            windows[windowNo]->fullScreenBounds.x = x;
+            windows[windowNo]->fullScreenBounds.y = y;
+        }
+
+        return ofPoint(x,y,0);
     }
-    
-    return ofPoint(windowW,windowH);
+
+    ofLogError("ofxAppGLFWWindowMulti::getWindowPosition")
+        << "window doesn't exist with windowNo: " << windowNo;
+
+    return ofPoint(0,0,0);
 }
 
 //------------------------------------------------------------
 ofPoint ofxAppGLFWWindowMulti::getWindowPosition(){
-    int x, y; 
-	glfwGetWindowPos(windows[currentWindow]->windowPtr, &x, &y);
-    
-    if( windows[currentWindow]->bFullscreen == false ){
-        windows[currentWindow]->windowBounds.x = x;
-        windows[currentWindow]->windowBounds.y = y;
-    }else{
-        windows[currentWindow]->fullScreenBounds.x = x;
-        windows[currentWindow]->fullScreenBounds.y = y;
-    }
-    
-    return ofPoint(x,y,0);
+    return getWindowPosition(currentWindow);
 }
 
 //------------------------------------------------------------
+int ofxAppGLFWWindowMulti::getWindowMonitor(int windowNo){
+    if(ofInRange(windowNo, 0, windows.size())) {
+        int numberOfMonitors;
+        GLFWmonitor** monitors = glfwGetMonitors(&numberOfMonitors);
 
-int ofxAppGLFWWindowMulti::getCurrentMonitor(){
-	int numberOfMonitors;
-	GLFWmonitor** monitors = glfwGetMonitors(&numberOfMonitors);
+        int xW;	int yW;
+        glfwGetWindowPos(windows[windowNo]->windowPtr, &xW, &yW);
 
-	int xW;	int yW;
-	glfwGetWindowPos(windows[currentWindow]->windowPtr, &xW, &yW);
-    
-	for (int iC=0; iC < numberOfMonitors; iC++){
-		int xM; int yM;
-		glfwGetMonitorPos(monitors[iC], &xM, &yM);
-		const GLFWvidmode * desktopMode = glfwGetVideoMode(monitors[iC]);
-		ofRectangle monitorRect(xM, yM, desktopMode->width, desktopMode->height);
-        
-        //we have to do this so the inside returns true for a window going fullscreen on that monitor
-        if( xW == xM ){
-            xW += 1;
+        for (int iC=0; iC < numberOfMonitors; iC++){
+            int xM; int yM;
+            glfwGetMonitorPos(monitors[iC], &xM, &yM);
+            const GLFWvidmode * desktopMode = glfwGetVideoMode(monitors[iC]);
+            ofRectangle monitorRect(xM, yM, desktopMode->width, desktopMode->height);
+
+            //we have to do this so the inside returns true for a window going fullscreen on that monitor
+            if( xW == xM ){
+                xW += 1;
+            }
+            if( yW == yM ){
+                yW += 1;
+            }
+
+            if (monitorRect.inside(xW, yW)){
+                return iC;
+            }
         }
-        if( yW == yM ){
-            yW += 1;
-        }
-        
-		if (monitorRect.inside(xW, yW)){
-			return iC;
-			break;
-		}
-	}
-	return 0;
+
+    }
+
+    ofLogError("ofxAppGLFWWindowMulti::getWindowMonitor")
+        << "window doesn't exist with windowNo: " << windowNo;
+
+    return 0;
 }
 
+//------------------------------------------------------------
+int ofxAppGLFWWindowMulti::getCurrentMonitor(){
+    return getWindowMonitor(currentWindow);
+}
+
+//------------------------------------------------------------
+ofPoint ofxAppGLFWWindowMulti::getScreenSize(int windowNo){
+    if(ofInRange(windowNo, 0, windows.size())) {
+        int count;
+        GLFWmonitor** monitors = glfwGetMonitors(&count);
+        if(count>0){
+            int winMonitor = getWindowMonitor(windowNo);
+            const GLFWvidmode * desktopMode = glfwGetVideoMode(monitors[winMonitor]);
+            if(desktopMode){
+                if( orientation == OF_ORIENTATION_DEFAULT || orientation == OF_ORIENTATION_180 ){
+                    return ofPoint(desktopMode->width, desktopMode->height);
+                }
+            }
+        }
+    } else {
+        ofLogError("ofxAppGLFWWindowMulti::getScreenSize")
+            << "window doesn't exist with windowNo: " << windowNo;
+    }
+
+    return ofPoint(0,0);
+}
 
 //------------------------------------------------------------
 ofPoint ofxAppGLFWWindowMulti::getScreenSize(){
-	int count;
-	GLFWmonitor** monitors = glfwGetMonitors(&count);
-	if(count>0){
-		int currentMonitor = getCurrentMonitor();
-		const GLFWvidmode * desktopMode = glfwGetVideoMode(monitors[currentMonitor]);
-		if(desktopMode){
-			if( orientation == OF_ORIENTATION_DEFAULT || orientation == OF_ORIENTATION_180 ){
-				return ofVec3f(desktopMode->width, desktopMode->height,0);
-			}else{
-				return ofPoint(0,0);
-			}
-		}else{
-			return ofPoint(0,0);
-		}
-	}else{
-		return ofPoint(0,0);
-	}
+    return getScreenSize(currentWindow);
+}
+
+//------------------------------------------------------------
+int ofxAppGLFWWindowMulti::getWidth(int windowNo){
+    if( orientation == OF_ORIENTATION_DEFAULT || orientation == OF_ORIENTATION_180 ){
+        return getWindowSize(windowNo).x;
+    }else{
+        return getWindowSize(windowNo).y;
+    }
 }
 
 //------------------------------------------------------------
 int ofxAppGLFWWindowMulti::getWidth(){
+    return getWidth(currentWindow);
+}
+
+//------------------------------------------------------------
+int ofxAppGLFWWindowMulti::getHeight(int windowNo){
     if( orientation == OF_ORIENTATION_DEFAULT || orientation == OF_ORIENTATION_180 ){
-        return getWindowSize().x;
+        return getWindowSize(windowNo).y;
     }else{
-        return getWindowSize().y;
+        return getWindowSize(windowNo).x;
     }
 }
 
 //------------------------------------------------------------
-int ofxAppGLFWWindowMulti::getHeight()
-{
-    if( orientation == OF_ORIENTATION_DEFAULT || orientation == OF_ORIENTATION_180 ){
-        return getWindowSize().y;
-    }else{
-        return getWindowSize().x;
-    }
+int ofxAppGLFWWindowMulti::getHeight(){
+    return getHeight(currentWindow);
 }
 
 //------------------------------------------------------------
-int	ofxAppGLFWWindowMulti::getWindowMode(){
-	return ( windows[currentWindow]->bFullscreen ? OF_FULLSCREEN : OF_WINDOW );
+int ofxAppGLFWWindowMulti::getWindowMode(int windowNo){
+    if(ofInRange(windowNo, 0, windows.size())) {
+        return ( windows[windowNo]->bFullscreen ? OF_FULLSCREEN : OF_WINDOW );
+    }
+
+    ofLogError("ofxAppGLFWWindowMulti::getWindowMode")
+        << "window doesn't exist with windowNo: " << windowNo;
+
+    return OF_WINDOW;
+}
+
+//------------------------------------------------------------
+int ofxAppGLFWWindowMulti::getWindowMode(){
+    return getWindowMode(currentWindow);
+}
+
+//------------------------------------------------------------
+void ofxAppGLFWWindowMulti::setWindowPosition(int windowNo, int x, int y){
+    if (ofInRange(windowNo, 0, windows.size())) {
+        glfwSetWindowPos(windows[windowNo]->windowPtr,x,y);
+
+        if( windows[windowNo]->bFullscreen == false ){
+            windows[windowNo]->windowBounds.x = x;
+            windows[windowNo]->windowBounds.y = y;
+        }
+    } else {
+        ofLogError("ofxAppGLFWWindowMulti::setWindowPosition")
+            << "window doesn't exist with windowNo: " << windowNo;
+    }
+
 }
 
 //------------------------------------------------------------
 void ofxAppGLFWWindowMulti::setWindowPosition(int x, int y){
-    glfwSetWindowPos(windows[currentWindow]->windowPtr,x,y);
-    
-    if( windows[currentWindow]->bFullscreen == false ){
-        windows[currentWindow]->windowBounds.x = x;
-        windows[currentWindow]->windowBounds.y = y;
+    setWindowPosition(currentWindow, x, x);
+}
+
+//------------------------------------------------------------
+void ofxAppGLFWWindowMulti::setWindowShape(int windowNo, int w, int h){
+    if (ofInRange(windowNo, 0, windows.size())) {
+        glfwSetWindowSize(windows[windowNo]->windowPtr,w,h);
+    } else {
+        ofLogError("ofxAppGLFWWindowMulti::setWindowShape")
+            << "window doesn't exist with windowNo: " << windowNo;
     }
 }
 
 //------------------------------------------------------------
 void ofxAppGLFWWindowMulti::setWindowShape(int w, int h){
-	glfwSetWindowSize(windows[currentWindow]->windowPtr,w,h);
+    setWindowShape(currentWindow, w, h);
 }
-
 //------------------------------------------------------------
 void ofxAppGLFWWindowMulti::hideCursor(){
 	glfwSetInputMode(windows[currentWindow]->windowPtr,GLFW_CURSOR,GLFW_CURSOR_HIDDEN);
@@ -655,25 +772,29 @@ void ofxAppGLFWWindowMulti::disableSetupScreen(){
 };
 
 //------------------------------------------------------------
-void ofxAppGLFWWindowMulti::setFullscreen(bool fullscreen){
- 
+void ofxAppGLFWWindowMulti::setFullscreen(int windowNo, bool fullscreen){
+    if (!ofInRange(windowNo, 0, windows.size())) {
+        ofLogError("ofxAppGLFWWindowMulti::setFullScreen")
+            << "window doesn't exist with windowNo: " << windowNo;
+        return;
+    }
     //we only want to change window mode if the requested window is different to the current one.
-    bool bChanged = fullscreen != windows[currentWindow]->bFullscreen;
+    bool bChanged = fullscreen != windows[windowNo]->bFullscreen;
     if( !bChanged ){
         return;
     }
 
-    windows[currentWindow]->bFullscreen = fullscreen;
- 
+    windows[windowNo]->bFullscreen = fullscreen;
+
 
 #ifdef TARGET_LINUX
 #include <X11/Xatom.h>
- 
-    Window nativeWin = glfwGetX11Window(windows[currentWindow]->windowPtr);
+
+    Window nativeWin = glfwGetX11Window(windows[windowNo]->windowPtr);
 	Display* display = glfwGetX11Display();
 	int monitorCount;
 	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
- 
+
 	if( bMultiWindowFullscreen && monitorCount > 1 ){
 		// find the monitors at the edges of the virtual desktop
 		int minx=numeric_limits<int>::max();
@@ -701,21 +822,21 @@ void ofxAppGLFWWindowMulti::setFullscreen(bool fullscreen){
             	monitorBottom = i;
             	maxy = y+h;
             }
- 
+
         }
- 
+
         // send fullscreen_monitors event with the edges monitors
 		Atom m_net_fullscreen_monitors= XInternAtom(display, "_NET_WM_FULLSCREEN_MONITORS", false);
- 
+
 		XEvent xev;
- 
+
 		xev.xclient.type = ClientMessage;
 		xev.xclient.serial = 0;
 		xev.xclient.send_event = True;
 		xev.xclient.window = nativeWin;
 		xev.xclient.message_type = m_net_fullscreen_monitors;
 		xev.xclient.format = 32;
- 
+
 		xev.xclient.data.l[0] = monitorTop;
 		xev.xclient.data.l[1] = monitorBottom;
 		xev.xclient.data.l[2] = monitorLeft;
@@ -723,64 +844,67 @@ void ofxAppGLFWWindowMulti::setFullscreen(bool fullscreen){
 		xev.xclient.data.l[4] = 1;
 		XSendEvent(display, RootWindow(display, DefaultScreen(display)),
 				   False, SubstructureRedirectMask | SubstructureNotifyMask, &xev);
- 
+
 	}
- 
+
 	// send fullscreen event
 	Atom m_net_state= XInternAtom(display, "_NET_WM_STATE", false);
 	Atom m_net_fullscreen= XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", false);
- 
+
 	XEvent xev;
- 
+
 	xev.xclient.type = ClientMessage;
 	xev.xclient.serial = 0;
 	xev.xclient.send_event = True;
 	xev.xclient.window = nativeWin;
 	xev.xclient.message_type = m_net_state;
 	xev.xclient.format = 32;
- 
+
 	if (fullscreen)
 		xev.xclient.data.l[0] = 1;
 	else
 		xev.xclient.data.l[0] = 0;
- 
+
 	xev.xclient.data.l[1] = m_net_fullscreen;
 	xev.xclient.data.l[2] = 0;
 	xev.xclient.data.l[3] = 0;
 	xev.xclient.data.l[4] = 0;
 	XSendEvent(display, RootWindow(display, DefaultScreen(display)),
 			   False, SubstructureRedirectMask | SubstructureNotifyMask, &xev);
- 
+
 	// tell the window manager to bypass composition for this window in fullscreen for speed
 	// it'll probably help solving vsync issues
 	Atom m_bypass_compositor = XInternAtom(display, "_NET_WM_BYPASS_COMPOSITOR", False);
 	unsigned long value = fullscreen ? 1 : 0;
 	XChangeProperty(display, nativeWin, m_bypass_compositor, XA_CARDINAL, 32, PropModeReplace, (unsigned char*)&value, 1);
- 
+
 	XFlush(display);
- 
+
 #elif defined(TARGET_OSX)
-	
+
     int monitorCount;
     GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
-    int currentMonitor = getCurrentMonitor();
+    int windowMonitor = getWindowMonitor(windowNo);
 
-	if( windows[currentWindow]->bFullscreen ){
-        windows[currentWindow]->windowBounds.set(getWindowPosition().x, getWindowPosition().y, getWindowSize().x, getWindowSize().y);
- 
+	if( windows[windowNo]->bFullscreen ){
+        ofPoint winPos = getWindowPosition(windowNo);
+        ofPoint winSize = getWindowSize(windowNo);
+
+        windows[windowNo]->windowBounds.set(winPos.x, winPos.y,
+                                            winSize.x, winSize.y);
+
 		//----------------------------------------------------
-        if( currentMonitor == 0 ){
-            SetSystemUIMode(kUIModeAllHidden,NULL);
-        }
-		NSWindow * cocoaWindow = glfwGetCocoaWindow(windows[currentWindow]->windowPtr);
- 
+        SetSystemUIMode(kUIModeAllHidden,NULL);
+
+		NSWindow * cocoaWindow = glfwGetCocoaWindow(windows[windowNo]->windowPtr);
+
 		[cocoaWindow setStyleMask:NSBorderlessWindowMask];
- 
-		ofVec3f screenSize = getScreenSize();
+
+		ofPoint screenSize = getScreenSize(windowNo);
 		ofRectangle allScreensSpace;
- 
+
         if( bMultiWindowFullscreen && monitorCount > 1 ){
- 
+
 			//calc the sum Rect of all the monitors
 			for(int i = 0; i < monitorCount; i++){
 				const GLFWvidmode * desktopMode = glfwGetVideoMode(monitors[i]);
@@ -790,75 +914,79 @@ void ofxAppGLFWWindowMulti::setFullscreen(bool fullscreen){
 				allScreensSpace = allScreensSpace.getUnion(screen);
 			}
 			//for OS X we need to set this first as the window size affects the window positon
-			setWindowShape(allScreensSpace.width, allScreensSpace.height);
-			setWindowPosition(allScreensSpace.x, allScreensSpace.y);
- 
-        }else if (monitorCount > 1 && currentMonitor < monitorCount){
+			setWindowShape(windowNo, allScreensSpace.width, allScreensSpace.height);
+			setWindowPosition(windowNo, allScreensSpace.x, allScreensSpace.y);
+
+        }else if (monitorCount > 1 && windowMonitor < monitorCount){
             int xpos;
 			int ypos;
-			glfwGetMonitorPos(monitors[currentMonitor], &xpos, &ypos);
- 
+			glfwGetMonitorPos(monitors[windowMonitor], &xpos, &ypos);
+
             //we do this as setWindowShape affects the position of the monitor
             //normally we would just call setWindowShape first, but on multi monitor you see the window bleed onto the second monitor as it first changes shape and is then repositioned.
             //this first moves it over in X, does the screen resize and then by calling it again its set correctly in y.
-			setWindowPosition(xpos, ypos);
-            setWindowShape(screenSize.x, screenSize.y);
-			setWindowPosition(xpos, ypos);
+			setWindowPosition(windowNo, xpos, ypos);
+            setWindowShape(windowNo, screenSize.x, screenSize.y);
+			setWindowPosition(windowNo, xpos, ypos);
 		}else{
             //for OS X we need to set this first as the window size affects the window positon
-            setWindowShape(screenSize.x, screenSize.y);
-			setWindowPosition(0,0);
+            setWindowShape(windowNo, screenSize.x, screenSize.y);
+			setWindowPosition(windowNo, 0,0);
 		}
- 
+
         //make sure the window is getting the mouse/key events
         [cocoaWindow makeFirstResponder:cocoaWindow.contentView];
- 
-	}else if( windows[currentWindow]->bFullscreen == false  ){
-        printf("currentMonitor is %i - currentWindow is %i\n", currentMonitor, currentWindow);
-        if( currentMonitor == 0 ){
-            SetSystemUIMode(kUIModeNormal,NULL);
-        }
-        
-		NSWindow * cocoaWindow = glfwGetCocoaWindow(windows[currentWindow]->windowPtr);
+
+	}else if( windows[windowNo]->bFullscreen == false  ){
+        SetSystemUIMode(kUIModeNormal,NULL);
+
+		NSWindow * cocoaWindow = glfwGetCocoaWindow(windows[windowNo]->windowPtr);
 		[cocoaWindow setStyleMask:NSTitledWindowMask | NSClosableWindowMask | NSMiniaturizableWindowMask | NSResizableWindowMask];
- 
-		setWindowShape(windows[currentWindow]->windowBounds.getWidth(), windows[currentWindow]->windowBounds.getHeight());
- 
+
+		setWindowShape(windowNo,
+                       windows[windowNo]->windowBounds.getWidth(),
+                       windows[windowNo]->windowBounds.getHeight());
+
 		//----------------------------------------------------
 		// if we have recorded the screen position, put it there
 		// if not, better to let the system do it (and put it where it wants)
 		if (ofGetFrameNum() > 0){
-			setWindowPosition(windows[currentWindow]->windowBounds.x, windows[currentWindow]->windowBounds.y);
+			setWindowPosition(windows[windowNo]->windowBounds.x,
+                              windows[windowNo]->windowBounds.y);
 		}
- 
+
 		//----------------------------------------------------
         //make sure the window is getting the mouse/key events
         [cocoaWindow makeFirstResponder:cocoaWindow.contentView];
 	}
 #elif defined(TARGET_WIN32)
-    if( windows[currentWindow]->bFullscreen){
-        windows[currentWindow]->windowBounds.set(getWindowPosition().x, getWindowPosition().y, getWindowSize().x, getWindowSize().y);
- 
+    if( windows[windowNo]->bFullscreen){
+        ofPoint winPos = getWindowPosition(windowNo);
+        ofPoint winSize = getWindowSize(windowNo);
+
+        windows[windowNo]->windowBounds.set(winPos.x, winPos.y,
+                                            winSize.x, winSize.y);
+
 		//----------------------------------------------------
-		HWND hwnd = glfwGetWin32Window(windows[currentWindow]->windowPtr);
- 
+		HWND hwnd = glfwGetWin32Window(windows[windowNo]->windowPtr);
+
 		SetWindowLong(hwnd, GWL_EXSTYLE, 0);
   		SetWindowLong(hwnd, GWL_STYLE, WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS);
   		SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
- 
-        float fullscreenW = getScreenSize().x;
-        float fullscreenH = getScreenSize().y;
- 
+
+        float fullscreenW = getScreenSize(windowNo).x;
+        float fullscreenH = getScreenSize(windowNo).y;
+
         int xpos = 0;
         int ypos = 0;
- 
+
         if( bMultiWindowFullscreen ){
- 
+
             float totalWidth = 0.0;
             float maxHeight  = 0.0;
             int monitorCount;
             GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
- 
+
             //lets find the total width of all the monitors
             //and we'll make the window height the height of the largest monitor.
             for(int i = 0; i < monitorCount; i++){
@@ -868,54 +996,68 @@ void ofxAppGLFWWindowMulti::setFullscreen(bool fullscreen){
                     maxHeight = desktopMode->height;
                 }
             }
- 
+
             fullscreenW = totalWidth;
             fullscreenH = maxHeight;
         }else{
- 
+
             int monitorCount;
             GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
-            int currentMonitor = getCurrentMonitor();
-            glfwGetMonitorPos(monitors[currentMonitor], &xpos, &ypos);
- 
+            int windowMonitor = getWindowMonitor(windowNo);
+            glfwGetMonitorPos(monitors[windowMonitor], &xpos, &ypos);
+
         }
- 
+
         SetWindowPos(hwnd, HWND_TOPMOST, xpos, ypos, fullscreenW, fullscreenH, SWP_SHOWWINDOW);
- 
-	}else if( windows[currentWindow]->bFullscreen == false ){
- 
-		HWND hwnd = glfwGetWin32Window(windows[currentWindow]->windowPtr);
- 
+
+	}else if( windows[windowNo]->bFullscreen == false ){
+
+		HWND hwnd = glfwGetWin32Window(windows[windowNo]->windowPtr);
+
   		DWORD EX_STYLE = WS_EX_OVERLAPPEDWINDOW;
 		DWORD STYLE = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
- 
+
 	  	ChangeDisplaySettings(0, 0);
 		SetWindowLong(hwnd, GWL_EXSTYLE, EX_STYLE);
 		SetWindowLong(hwnd, GWL_STYLE, STYLE);
   		SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
- 
+
 		//not sure why this is - but if we don't do this the window shrinks by 4 pixels in x and y
 		//should look for a better fix.
-		setWindowPosition(windows[currentWindow]->windowBounds.x-2, windows[currentWindow]->windowBounds.y-2);
-		setWindowShape(windows[currentWindow]->windowBounds.getWidth()+4, windows[currentWindow]->windowBounds.getHeight()+4);
+		setWindowPosition(windows[windowNo]->windowBounds.x-2,
+                          windows[windowNo]->windowBounds.y-2);
+		setWindowShape(windows[windowNo]->windowBounds.getWidth()+4,
+                       windows[windowNo]->windowBounds.getHeight()+4);
 	}
 #endif
 
-    if( fullscreen == false && windows[currentWindow]->windowName.length() ){
-        setWindowTitle(windows[currentWindow]->windowName); 
+    if( fullscreen == false && windows[windowNo]->windowName.length() ){
+        setWindowTitle(windowNo, windows[windowNo]->windowName);
     }
+}
 
-    
+//------------------------------------------------------------
+void ofxAppGLFWWindowMulti::setFullscreen(bool fullscreen) {
+    setFullscreen(currentWindow, fullscreen);
+}
+
+//------------------------------------------------------------
+void ofxAppGLFWWindowMulti::toggleFullscreen(int windowNo){
+    if (ofInRange(windowNo, 0, windows.size())) {
+        if(windows[windowNo]->bFullscreen == false){
+            setFullscreen(windowNo, true);
+        } else {
+            setFullscreen(windowNo, false);
+        }
+    } else {
+        ofLogError("ofxAppGLFWWindowMulti::setFullScreen")
+            << "window doesn't exist with windowNo: " << windowNo;
+    }
 }
 
 //------------------------------------------------------------
 void ofxAppGLFWWindowMulti::toggleFullscreen(){
-
-	if(windows[currentWindow]->bFullscreen == false){
-		setFullscreen(true);
-	} else {
-		setFullscreen(false);
-	}
+    toggleFullscreen(currentWindow);
 }
 
 //------------------------------------------------------------
@@ -967,17 +1109,17 @@ static void rotateMouseXY(ofOrientation orientation, double &x, double &y) {
 
 //------------------------------------------------------------
 void ofxAppGLFWWindowMulti::mouse_cb(GLFWwindow* windowP_, int button, int state, int mods) {
-    instance->setCurrentWindowToWin(windowP_); 
+    instance->setFocusedWindow(windowP_);
 
 	ofLogVerbose("ofxAppGLFWWindowMulti") << "mouse button: " << button;
 
 #ifdef TARGET_OSX
-    //we do this as unlike glut, glfw doesn't report right click for ctrl click or middle click for alt click 
+    //we do this as unlike glut, glfw doesn't report right click for ctrl click or middle click for alt click
     if( ofGetKeyPressed(OF_KEY_CONTROL) && button == GLFW_MOUSE_BUTTON_LEFT){
-        button = GLFW_MOUSE_BUTTON_RIGHT; 
+        button = GLFW_MOUSE_BUTTON_RIGHT;
     }
     if( ofGetKeyPressed(OF_KEY_ALT) && button == GLFW_MOUSE_BUTTON_LEFT){
-        button = GLFW_MOUSE_BUTTON_MIDDLE; 
+        button = GLFW_MOUSE_BUTTON_MIDDLE;
     }
 #endif
 
@@ -992,22 +1134,14 @@ void ofxAppGLFWWindowMulti::mouse_cb(GLFWwindow* windowP_, int button, int state
 		button = OF_MOUSE_BUTTON_MIDDLE;
 		break;
 	}
-    
-    ofPoint mousePt = instance->windows[instance->currentWindow]->mousePt;
+
+    ofPoint mousePt = instance->windows[instance->focusedWindow]->mousePt;
 
 	if (state == GLFW_PRESS){
-        if( instance->currentWindow == 0 ){
-            ofNotifyMousePressed(mousePt.x, mousePt.y, button);
-        }else{
-            ofAppPtr->mousePressed(mousePt.x, mousePt.y, button);
-        }
+        ofNotifyMousePressed(mousePt.x, mousePt.y, button);
 		instance->buttonPressed=true;
 	} else if (state == GLFW_RELEASE) {
-        if( instance->currentWindow == 0 ){
-            ofNotifyMouseReleased(mousePt.x, mousePt.y, button);
-        }else{
-            ofAppPtr->mouseReleased(mousePt.x, mousePt.y, button);
-        }
+        ofNotifyMouseReleased(mousePt.x, mousePt.y, button);
 		instance->buttonPressed=false;
 	}
 	instance->buttonInUse = button;
@@ -1017,28 +1151,21 @@ void ofxAppGLFWWindowMulti::mouse_cb(GLFWwindow* windowP_, int button, int state
 
 //------------------------------------------------------------
 void ofxAppGLFWWindowMulti::motion_cb(GLFWwindow* windowP_, double x, double y) {
-    instance->setCurrentWindowToWin(windowP_); 
+    // TODO in theory this shouldn't be necessary, but when a new window is
+    // created programatically (including via loading settings) callbacks are
+    // fired for multiple windows until window 0 is selected
+    if (!glfwGetWindowAttrib(windowP_, GLFW_FOCUSED)){
+        return;
+    }
 
 	rotateMouseXY(ofGetOrientation(), x, y);
-    
-    instance->windows[instance->currentWindow]->mousePt.set(x, y);
 
-    if( instance->currentWindow == 0 ){
+    instance->windows[instance->focusedWindow]->mousePt.set(x, y);
 
-        if(!instance->buttonPressed){
-            ofNotifyMouseMoved(x, y);
-        }else{
-            ofNotifyMouseDragged(x, y, instance->buttonInUse);
-        }
-    
+    if(!instance->buttonPressed){
+        ofNotifyMouseMoved(x, y);
     }else{
-
-        if(!instance->buttonPressed){
-            ofAppPtr->mouseMoved(x, y);
-        }else{
-            ofAppPtr->mouseDragged(x, y, instance->buttonInUse);
-        }
-    
+        ofNotifyMouseDragged(x, y, instance->buttonInUse);
     }
 }
 
@@ -1048,47 +1175,43 @@ void ofxAppGLFWWindowMulti::scroll_cb(GLFWwindow* windowP_, double x, double y) 
 }
 
 //------------------------------------------------------------
-void ofxAppGLFWWindowMulti::drop_cb(GLFWwindow* windowP_, const char* dropString) {
-    instance->setCurrentWindowToWin(windowP_); 
+void ofxAppGLFWWindowMulti::drop_cb(GLFWwindow* windowP_, int numFiles, const char** dropString) {
+    instance->setFocusedWindow(windowP_);
 
-	string drop = dropString;
+	double xpos, ypos;
+	glfwGetCursorPos(windowP_, &xpos, &ypos);
+
 	ofDragInfo drag;
-	drag.position.set(ofGetMouseX(),ofGetMouseY());
-	drag.files = ofSplitString(drop,"\n",true);
-#ifdef TARGET_LINUX
+	drag.position.set(xpos, ypos);
+	drag.files.resize(numFiles);
 	for(int i=0; i<(int)drag.files.size(); i++){
-		drag.files[i] = Poco::URI(drag.files[i]).getPath();
+		drag.files[i] = Poco::URI(dropString[i]).getPath();
 	}
-#endif
 	ofNotifyDragEvent(drag);
 }
 
 //------------------------------------------------------------
 void ofxAppGLFWWindowMulti::focus_cb(GLFWwindow* windowP_, int focus){
-    for(int i = 0; i < instance->windows.size(); i++){
-        if( instance->windows[i]->windowPtr == windowP_ ){
-            instance->windows[i]->bInFocus = focus; 
-        }
-    }
+    instance->setFocusedWindow(windowP_);
 }
 
 //------------------------------------------------------------
-void ofxAppGLFWWindowMulti::setCurrentWindowToWin(GLFWwindow * windowP_){
+void ofxAppGLFWWindowMulti::setFocusedWindow(GLFWwindow * windowP_){
     for(int i = 0; i < windows.size(); i++){
         if( windows[i]->windowPtr && windows[i]->windowPtr == windowP_ ){
-            currentWindow = windows[i]->windowNo; 
+            focusedWindow = windows[i]->windowNo;
         }
     }
 }
 
 //------------------------------------------------------------
-void ofxAppGLFWWindowMulti::keyboard_cb(GLFWwindow* windowP_, int key, int scancode, int action, int mods) {
-    
-    instance->setCurrentWindowToWin(windowP_);
-    
-	ofLogVerbose("ofxAppGLFWWindowMulti") << "key: " << key << " state: " << action;
+void ofxAppGLFWWindowMulti::keyboard_cb(GLFWwindow* windowP_, int keycode, int scancode, unsigned int codepoint, int action, int mods) {
 
-	switch (key) {
+        int key;
+
+
+
+	switch (keycode){
 		case GLFW_KEY_ESCAPE:
 			key = OF_KEY_ESC;
 			break;
@@ -1190,39 +1313,27 @@ void ofxAppGLFWWindowMulti::keyboard_cb(GLFWwindow* windowP_, int key, int scanc
 			break;
 		case GLFW_KEY_KP_ENTER:
 			key = OF_KEY_RETURN;
-			break;   
+			break;
 		case GLFW_KEY_TAB:
 			key = OF_KEY_TAB;
-			break;   
+			break;
 		default:
+			key = codepoint;
 			break;
 	}
 
-	//GLFW defaults to uppercase - OF users are used to lowercase
-    //we look and see if shift is being held to toggle upper/lowecase 
-	if( key >= 65 && key <= 90 && !ofGetKeyPressed(OF_KEY_SHIFT) ){
-		key += 32;
-	}
-    
     if(action == GLFW_PRESS || action == GLFW_REPEAT){
-        ofNotifyKeyPressed(key);
+		ofNotifyKeyPressed(key,keycode,scancode,codepoint);
     }else if (action == GLFW_RELEASE){
-        ofNotifyKeyReleased(key);
+		ofNotifyKeyReleased(key,keycode,scancode,codepoint);
     }
-
 }
 
 //------------------------------------------------------------
 void ofxAppGLFWWindowMulti::resize_cb(GLFWwindow* windowP_,int w, int h) {
-    instance->setCurrentWindowToWin(windowP_); 
-
-	instance->getWindowSize();
-    
-    //only do resize notification for main window
-    if(windowP_ == instance->windows[0]->windowPtr){
-        ofNotifyWindowResized(w, h);
-    }
-    
+    instance->setFocusedWindow(windowP_);
+    instance->updateWindowSize(instance->getFocusedWindowNo());
+    ofNotifyWindowResized(w, h);
 	instance->nFramesSinceWindowResized = 0;
 }
 
